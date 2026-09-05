@@ -21,7 +21,7 @@ def generate_cashflows(bonds_df : pd.DataFrame, nominal : Decimal = Decimal("100
 
     cashflows = []
 
-    calendar = ql.France()
+    calendar = ql.NullCalendar()
 
     for row in bonds_df.itertuples():
 
@@ -37,7 +37,7 @@ def generate_cashflows(bonds_df : pd.DataFrame, nominal : Decimal = Decimal("100
         settlement = calendar.advance(evaluation, 2, ql.Days)
 
         schedule = ql.Schedule(accrual_start_date, maturity, ql.Period(months_per_period, ql.Months),
-                               calendar, ql.Following, ql.Following, ql.DateGeneration.Forward, False)
+                               calendar, ql.Unadjusted, ql.Unadjusted, ql.DateGeneration.Backward, False)
 
         future_dates = [date for date in schedule if date > settlement]
         final_date = future_dates[-1] if future_dates else None

@@ -40,7 +40,7 @@ def generate_dirty_prices(bonds_df : pd.DataFrame, nominal : float = 100.0) -> p
     
     dirty_prices = []
 
-    calendar = ql.France()
+    calendar = ql.NullCalendar()
 
     for row in bonds_df.itertuples():
 
@@ -56,7 +56,7 @@ def generate_dirty_prices(bonds_df : pd.DataFrame, nominal : float = 100.0) -> p
         settlement = calendar.advance(evaluation, 2, ql.Days)
 
         schedule = ql.Schedule(accrual_start_date, maturity, ql.Period(months_per_period, ql.Months),
-                                       calendar, ql.Following, ql.Following, ql.DateGeneration.Forward, False)
+                                       calendar, ql.Unadjusted, ql.Unadjusted, ql.DateGeneration.Backward, False)
 
         previous_coupon = None
         next_coupon = None
@@ -95,7 +95,7 @@ def generate_dirty_prices(bonds_df : pd.DataFrame, nominal : float = 100.0) -> p
 
             accrued_interest = coupon_amount*accrued_fraction
 
-        dirty_price = round(clean_price + accrued_interest, 2)
+        dirty_price = clean_price + accrued_interest
 
         dirty_prices.append({"Bond": bond, "Maturity": to_pd_date(maturity), "DirtyPrice": dirty_price})
 

@@ -41,4 +41,8 @@ def generate_discount_factors(cashflow_df : pd.DataFrame, dirty_price_df : pd.Da
 
                 known_cfXdf += discount_factors[date]*cashflow_amount
 
+            else:
+
+                raise ValueError("One of the discount factors needed to bootstrap is absent. This means that the dataset used doesn't have successive maturities bond.")
+
     return pd.DataFrame([{"Bond": bonds[date], "Maturity": date, "DiscountFactor": discount_factor} for date, discount_factor in discount_factors.items()])

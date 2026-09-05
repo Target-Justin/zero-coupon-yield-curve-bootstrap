@@ -18,7 +18,7 @@ def generate_zero_coupon_curve(discount_factor : pd.DataFrame, valuation_date : 
         DataFrame containing maturities, discount factors, and zero-coupon rates.
     """
 
-    calendar = ql.France()
+    calendar = ql.NullCalendar()
 
     valuation_date = to_ql_date(valuation_date)
 
@@ -49,6 +49,10 @@ def generate_zero_coupon_curve(discount_factor : pd.DataFrame, valuation_date : 
                                     "DiscountFactor": discount_factor["DiscountFactor"],
                                     "ZeroCouponRate": zero_coupon_rate,
                                     "ZeroCouponRatePct": zero_coupon_rate * 100})
+
+    else:
+        
+        raise ValueError(f"Compounding inconnu : {compounding}")
 
     plt.figure(figsize=(10, 6))
 

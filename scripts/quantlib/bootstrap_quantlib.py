@@ -5,6 +5,26 @@ import matplotlib.pyplot as plt
 def to_ql_date(date):
     return ql.Date(date.day, date.month, date.year)
 
+def get_day_counter(day_count):
+    day_count = day_count.upper().replace("-", "/").replace(" ", "")
+
+    if day_count == "ACT/ACT":
+        return ql.ActualActual(ql.ActualActual.ISDA)
+
+    elif day_count == "ACT/360":
+        return ql.Actual360()
+
+    elif day_count == "ACT/365":
+        return ql.Actual365Fixed()
+
+    elif day_count == "30/360":
+        return ql.Thirty360(ql.Thirty360.BondBasis)
+
+    else:
+        raise ValueError(
+            f"Convention DayCount inconnue : {day_count}"
+        )
+
 def generate_quantlib_zero_coupon_curve(bonds_df : pd.DataFrame) -> pd.DataFrame:
     """Generate a zero-coupon curve using QuantLib.
 
@@ -17,9 +37,7 @@ def generate_quantlib_zero_coupon_curve(bonds_df : pd.DataFrame) -> pd.DataFrame
         DataFrame containing QuantLib discount factors and zero-coupon rates.
     """
 
-    calendar = ql.France()
-
-    day_counter = ql.ActualActual(ql.ActualActual.ISDA)
+    calendar = ql.NullCalendar()
 
     evaluation_date = to_ql_date(bonds_df["EvaluationDate"].iloc[0])
     ql.Settings.instance().evaluationDate = evaluation_date
@@ -29,6 +47,8 @@ def generate_quantlib_zero_coupon_curve(bonds_df : pd.DataFrame) -> pd.DataFrame
     helpers = []
 
     for row in bonds_df.itertuples():
+
+        day_counter=get_day_counter(row.DayCount)
 
         maturity = to_ql_date(row.Maturity)
         evaluation_date = to_ql_date(row.EvaluationDate)
@@ -40,13 +60,13 @@ def generate_quantlib_zero_coupon_curve(bonds_df : pd.DataFrame) -> pd.DataFrame
         clean_price = float(row.CleanPrice)
 
         schedule = ql.Schedule(accrual_start_date, maturity, ql.Period(months_per_period, ql.Months),
-                            calendar, ql.Following, ql.Following,
-                            ql.DateGeneration.Forward,False)
+                            calendar, ql.Unadjusted, ql.Unadjusted,
+                            ql.DateGeneration.Backward,False)
 
         quote = ql.QuoteHandle(ql.SimpleQuote(clean_price))
 
         helper = ql.FixedRateBondHelper(quote, settlement_day, 100.0, schedule,
-                                        [coupon], day_counter, ql.Following, 100.0,
+                                        [coupon], day_counter, ql.Unadjusted, 100.0,
                                         issue_date)
 
         helpers.append(helper)
