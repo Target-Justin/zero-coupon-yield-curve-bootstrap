@@ -155,7 +155,7 @@
 ### Bootstrap Comparison
 
 
-	The from-scratch bootstrap produces a zero-coupon curve that is very close to the QuantLib result. Across the maturities considered, the maximum difference is approximately 0.44 basis points, and the from-scratch implementation generally produces slightly higher zero-coupon rates.
+	The from-scratch bootstrap produces a zero-coupon curve that is very close to the QuantLib result. Across the maturities considered, the maximum difference is approximately 0.25 basis points, observed at the 2037 maturity. Outside of this point, the from-scratch implementation generally produces slightly lower zero-coupon rates than QuantLib.
 
 
 #### Observed Differences
@@ -170,7 +170,12 @@
 #### Overall Behaviour
 
 
-	The differences do not increase systematically with maturity. After the deviation observed around 2037, the differences decrease again and remain below approximately 0.15 basis points for the remaining maturities.
+	The differences do not increase systematically with maturity. Two
+	points stand out from the general noise floor: 2037 (+0.25 bp, the
+	largest deviation) and 2028 (-0.07 bp, the second largest). Outside
+	these two points, differences remain below approximately 0.02 basis
+	points across the remaining maturities, with the exception of a
+	marginal excursion at 2036 (-0.02 bp).
 	The comparison shows that the two implementations produce very similar zero-coupon curves for the dataset considered. It therefore provides a useful consistency check for the from-scratch implementation, while acknowledging that the two curves are not numerically identical.
 	The precise reasons for the remaining discrepancies are left open for further investigation.
 
@@ -188,7 +193,7 @@
 
 		- Valuation date : 2026-07-29
 		- Day-count convention : Actual/Actual ISDA
-		- Calendar : French calendar
+		- Calendar : None (unadjusted dates, ql.NullCalendar — no holiday calendar applied)
 		- Instruments : French government bonds (OAT)
 		- Maturities: OATs are ordered by increasing maturity and are treated sequentially in the bootstrap. 
 		
@@ -237,6 +242,4 @@
 
 ## Reference
 
-
 	Options, Futures, and Other Derivatives, John Hull, 11th edition, ISBN: 978-1-292-41065-4
-
