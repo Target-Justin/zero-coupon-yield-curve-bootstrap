@@ -170,12 +170,7 @@
 #### Overall Behaviour
 
 
-	The differences do not increase systematically with maturity. Two
-	points stand out from the general noise floor: 2037 (+0.25 bp, the
-	largest deviation) and 2028 (-0.07 bp, the second largest). Outside
-	these two points, differences remain below approximately 0.02 basis
-	points across the remaining maturities, with the exception of a
-	marginal excursion at 2036 (-0.02 bp).
+	The differences do not increase systematically with maturity. Two points stand out from the general noise floor: 2037 (+0.25 bp, the largest deviation) and 2028 (-0.07 bp, the second largest). Outside these two points, differences remain below approximately 0.02 basis points across the remaining maturities, with the exception of a marginal excursion at 2036 (-0.02 bp).
 	The comparison shows that the two implementations produce very similar zero-coupon curves for the dataset considered. It therefore provides a useful consistency check for the from-scratch implementation, while acknowledging that the two curves are not numerically identical.
 	The precise reasons for the remaining discrepancies are left open for further investigation.
 
