@@ -30,7 +30,7 @@
     All valuations are performed as of 2026-07-29, using the clean closing prices observed on Euronext on that date.
     OAT transactions on Euronext follow the European T+2 settlement convention. The settlement date is therefore defined as two business days after the valuation date:
 
-            Settlement Date = Valuation Date + 2 business days
+            Settlement Date = Valuation Date + 2 calendar days
 
     The settlement date serves as the reference date for both accrued coupon interest and future cash-flow calculations.
 
@@ -61,7 +61,7 @@
                          ▼
                  Evaluation Date (T)
                          │
-                         │ + 2 business days
+                         │ + 2 calendar days
                          ▼
                   Settlement Date
                          │
