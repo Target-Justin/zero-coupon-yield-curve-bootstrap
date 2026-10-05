@@ -1,0 +1,4 @@
+numpy==2.5.1
+matplotlib==3.11.1
+pandas==3.0.5
+QuantLib==1.43

@@ -1,48 +1,63 @@
 import pandas as pd
 
-def to_pd_date(date):
-    return pd.Timestamp(date.year(), date.month(), date.dayOfMonth())
-
 def generate_discount_factors(cashflow_df : pd.DataFrame, dirty_price_df : pd.DataFrame) -> pd.DataFrame:
-    """Bootstrap discount factors from bond cash flows and dirty prices.
+    """Bootstrap discount factors from bond cashflows and dirty prices.
+
+    Bonds are processed by increasing maturity. For each bond, the discount factor
+    at its maturity is (dirty price - present value of its earlier cashflows) /
+    final cashflow. Every earlier cashflow date must therefore already be the
+    maturity of a previous bond: no interpolation is used.
 
     Args:
-        cashflow_df: DataFrame containing the bond cash flows.
-        dirty_price_df: DataFrame containing the dirty price of each bond.
+        cashflow_df: DataFrame with the columns Bond, Date and Cashflow, one row per
+            future cashflow, ordered by date within each bond.
+        dirty_price_df: DataFrame with one row per bond and the columns Bond,
+            Maturity and DirtyPrice.
 
     Returns:
-        DataFrame containing the bootstrapped discount factors.
+        DataFrame with the columns Bond, Maturity and DiscountFactor, sorted by
+        increasing maturity.
+
+    Raises:
+        ValueError: If two bonds share the same maturity, or if a cashflow date
+            has no known discount factor.
     """
 
     discount_factors = {}
     bonds = {}
 
+    dirty_price_df = dirty_price_df.sort_values("Maturity").reset_index(drop=True)
+
+    if dirty_price_df["Maturity"].duplicated().any():
+        raise ValueError("Two bonds share the same maturity: the bootstrap cannot tell them apart.")
+
     for bond_row in dirty_price_df.itertuples():
 
         bond = bond_row.Bond
         price = bond_row.DirtyPrice
-        maturity = bond_row.Maturity
 
-        known_cfXdf = 0.0
+        pv_known_cashflows = 0.0
         bond_cashflows = cashflow_df[cashflow_df["Bond"] == bond]
-        payment_date = bond_cashflows["Date"].iloc[-1]
+        maturity_date = bond_cashflows["Date"].iloc[-1]
 
-        for cf in cashflow_df[cashflow_df["Bond"] == bond].itertuples():
+        for cf in bond_cashflows.itertuples():
 
-            cashflow_amount = float(cf.Cashflow)
+            cashflow_amount = cf.Cashflow
             date = cf.Date
             
-            if date == payment_date:
+            if date == maturity_date:
 
-               discount_factors[payment_date] = (price - known_cfXdf) / cashflow_amount
-               bonds[payment_date] = bond
+               discount_factors[maturity_date] = (price - pv_known_cashflows) / cashflow_amount
+               bonds[maturity_date] = bond
 
             elif date in discount_factors:
 
-                known_cfXdf += discount_factors[date]*cashflow_amount
+                pv_known_cashflows += discount_factors[date]*cashflow_amount
 
             else:
 
-                raise ValueError("One of the discount factors needed to bootstrap is absent. This means that the dataset used doesn't have successive maturities bond.")
-
+                raise ValueError(f"Cannot bootstrap {bond}: its cash flow on {date:%Y-%m-%d} has no known "
+                 f"discount factor because no bond matures on that date. "
+                 f"The dataset needs bonds with successive maturities.")
+                
     return pd.DataFrame([{"Bond": bonds[date], "Maturity": date, "DiscountFactor": discount_factor} for date, discount_factor in discount_factors.items()])

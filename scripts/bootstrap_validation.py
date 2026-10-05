@@ -1,140 +1,39 @@
 import pandas as pd
-import matplotlib.pyplot as plt
 
-def compare_zero_coupon(quantlib_zero_coupon : pd.DataFrame, zero_coupon : pd.DataFrame) -> pd.DataFrame:
-    """Compare the from-scratch and QuantLib zero-coupon curves.
+def compare_zero_coupon(quantlib_zero_coupon_rate : pd.DataFrame, zero_coupon_rate : pd.DataFrame) -> pd.DataFrame:
+    """Compare the from-scratch and QuantLib zero-coupon curves, bond by bond.
+
+    The two DataFrames are merged on Bond and Maturity. Each difference is the
+    from-scratch value minus the QuantLib value. The input DataFrames are not modified.
 
     Args:
-        quantlib_zero_coupon: DataFrame containing the QuantLib results.
-        zero_coupon: DataFrame containing the from-scratch bootstrap results.
+        quantlib_zero_coupon_rate: QuantLib results, with the columns Bond, Maturity,
+            QLDiscountFactor, QLZeroCouponRate and QLZeroCouponRatePct.
+        zero_coupon_rate: From-scratch results, with the columns Bond, Maturity,
+            TimeToMaturity, DiscountFactor, ZeroCouponRate and ZeroCouponRatePct.
 
     Returns:
-        DataFrame containing the comparison and differences between both curves.
+        DataFrame with all the columns of both inputs plus DiscountFactor_Diff,
+        ZeroCouponRate_Diff (decimal) and ZeroCouponRate_DiffBp (basis points).
+
+    Raises:
+        ValueError: If a bond of the from-scratch curve is missing from the QuantLib
+            results.
     """
 
-    quantlib_zero_coupon["Maturity"] = pd.to_datetime(quantlib_zero_coupon["Maturity"])
-    zero_coupon["Maturity"] = pd.to_datetime(zero_coupon["Maturity"])
+    quantlib_zero_coupon_rate = quantlib_zero_coupon_rate.copy()
+    zero_coupon_rate = zero_coupon_rate.copy()
 
-    comparison = pd.merge(quantlib_zero_coupon, zero_coupon, on=["Bond", "Maturity"], how="inner")
+    quantlib_zero_coupon_rate["Maturity"] = pd.to_datetime(quantlib_zero_coupon_rate["Maturity"])
+    zero_coupon_rate["Maturity"] = pd.to_datetime(zero_coupon_rate["Maturity"])
+
+    comparison = pd.merge(quantlib_zero_coupon_rate, zero_coupon_rate, on=["Bond", "Maturity"], how="inner")
+
+    if len(comparison) != len(zero_coupon_rate):
+        raise ValueError("Some bonds of the from-scratch curve are missing from the QuantLib results.")
 
     comparison["DiscountFactor_Diff"] = (comparison["DiscountFactor"] - comparison["QLDiscountFactor"])
     comparison["ZeroCouponRate_Diff"] = (comparison["ZeroCouponRate"] - comparison["QLZeroCouponRate"])
-    comparison["ZeroCouponRatePct_Diff"] = ((comparison["ZeroCouponRatePct"] - comparison["QLZeroCouponRatePct"])) * 100
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    ax.plot(
-        comparison["Maturity"],
-        comparison["QLDiscountFactor"],
-        marker="o",
-        label="QuantLib discount factor"
-    )
-
-    ax.plot(
-        comparison["Maturity"],
-        comparison["DiscountFactor"],
-        marker="x",
-        linestyle="--",
-        label="Discount factor"
-    )
-
-    ax.set_title("Comparison of discount factors")
-    ax.set_xlabel("Maturity")
-    ax.set_ylabel("Discount Factor")
-
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    fig.autofmt_xdate()
-    plt.tight_layout()
-    plt.savefig("results/comparison_of_discountfactor.png", dpi=300, bbox_inches="tight")
-    plt.show()
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    ax.plot(
-        comparison["Maturity"],
-        comparison["QLZeroCouponRatePct"],
-        marker="o",
-        label="QuantLib zero coupon rate pct"
-    )
-
-    ax.plot(
-        comparison["Maturity"],
-        comparison["ZeroCouponRatePct"],
-        marker="x",
-        linestyle="--",
-        label="Zero coupon rate pct"
-    )
-
-    ax.set_title("Comparison of zero coupon rate")
-    ax.set_xlabel("Maturity")
-    ax.set_ylabel("Zero coupon rate (%)")
-
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-
-    fig.autofmt_xdate()
-    plt.tight_layout()
-    plt.savefig("results/zero_coupon_rate_curve.png", dpi=300, bbox_inches="tight")
-    plt.show()
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-
-    ax.axhline(
-        y=0,
-        linestyle="--",
-        linewidth=1
-    )
-
-    ax.plot(
-        comparison["Maturity"],
-        comparison["ZeroCouponRatePct_Diff"],
-        marker="o"
-    )
-
-    ax.set_title(
-        "Spread between zero coupon rate "
-        "(Zero coupon rate - QuantLib zero coupon rate)"
-    )
-
-    ax.set_xlabel("Maturity")
-    ax.set_ylabel("Spread (basis points)")
-
-    ax.grid(True, alpha=0.3)
-
-    fig.autofmt_xdate()
-    plt.tight_layout()
-    plt.savefig("results/spread_btw_zero_coupon_rate.png", dpi=300, bbox_inches="tight")
-    plt.show()
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-
-    ax.axhline(
-        y=0,
-        linestyle="--",
-        linewidth=1
-    )
-
-    ax.plot(
-        comparison["Maturity"],
-        comparison["DiscountFactor_Diff"],
-        marker="o"
-    )
-
-    ax.set_title(
-        "Spread between discount factor"
-        "(Discount factor - QuantLib discount factor)"
-    )
-
-    ax.set_xlabel("Maturity")
-    ax.set_ylabel("Difference in discount factor")
-
-    ax.grid(True, alpha=0.3)
-
-    fig.autofmt_xdate()
-    plt.tight_layout()
-    plt.savefig("results/spread_btw_discount_factor.png", dpi=300, bbox_inches="tight")
-    plt.show()
+    comparison["ZeroCouponRate_DiffBp"] = ((comparison["ZeroCouponRatePct"] - comparison["QLZeroCouponRatePct"])) * 100
 
     return comparison
