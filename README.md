@@ -1,259 +1,225 @@
-# Zero-Coupon Yield Curve Bootstrap
+# Zero-Coupon Yield Curve Bootstrap: French OATs and OIS (€STR, SOFR)
 
 ## Overview
 
-This project implements a zero-coupon yield curve bootstrap using French government bonds (OATs).
-It was developed as a personal summer project to explore interest-rate modelling and better understand the construction of discount and zero-coupon curves, alongside the study of *Options, Futures, and Other Derivatives* by John Hull.
+This project builds zero-coupon curves **from scratch** and validates each one against an independent **QuantLib** benchmark, on two kinds of instruments:
 
-## Objectives
+- **French government bonds (OATs)**: 19 bonds maturing between 2027 and 2045, valued on 2026-07-29 (public data, included);
+- **Overnight indexed swaps (OIS)** on €STR and SOFR, from 1 week to 50 years, on 7 valuation dates between 2021 and 2026 (Bloomberg data, *not* included).
 
-The main objectives of this project are to:
+It started as a personal summer project alongside John Hull's *Options, Futures, and Other Derivatives*, to understand how discount and zero-coupon curves are built and how much market conventions matter. The OIS extension adds what the bond case did not need: interpolation between pillars, a root-finding step, and per-index calendars.
 
-- understand the mechanics of yield curve bootstrapping;
-- derive discount factors and zero-coupon rates from government bonds;
-- implement the methodology from scratch;
-- explore the impact of market conventions in bond pricing and yield curve construction;
-- gain practical experience with Pandas for financial data processing and analysis;
-- use QuantLib to price and bootstrap bonds, and compare its results with the from-scratch implementation.
+The zero-coupon curves are the input of my [Nelson-Siegel-Svensson calibration project](https://github.com/Target-Justin/nelson-siegel-svensson-oat-calibration).
 
-## Methodology
+## Highlights
 
-### Valuation and Settlement
+- **OAT bootstrap**: the from-scratch curve matches QuantLib within **0.25 bp** at every maturity, and within 0.025 bp at all but two of them.
+- **OIS bootstrap**: on all 14 curves (2 indices × 7 dates, 32 pillars each), the from-scratch zero rates match QuantLib's `OISRateHelper` curve within **10⁻⁷ bp**, and the discount factors within 3·10⁻¹³.
 
-The instruments studied are French government bonds (OATs), which pay fixed annual coupons and repay their nominal value at maturity.
-All valuations are performed as of 2026-07-29, using the clean closing prices observed on Euronext on that date.
+## Contents
 
-OAT transactions on Euronext follow the European T+2 settlement convention. The settlement date is therefore defined as two business days after the valuation date, using the TARGET calendar:
+- [OAT Bootstrap](#oat-bootstrap)
+- [OIS Bootstrap](#ois-bootstrap)
+- [Project Structure](#project-structure)
+- [Usage](#usage)
+- [Data Availability](#data-availability)
+- [Limitations](#limitations)
+- [Requirements](#requirements)
+- [References](#references)
+
+## OAT Bootstrap
+
+### Data
+
+- **Agence France Trésor**: bond characteristics (ISIN, maturity, coupon, issue and accrual start dates, frequency, day count): https://www.aft.gouv.fr/fr/encours-detaille-oat
+- **Euronext**: clean closing prices on 2026-07-29: https://www.euronext.com/en
+
+All inputs are in `data/raw/bonds/dataset.csv`.
+
+### Conventions
+
+| Item | Convention |
+|---|---|
+| Valuation date | 2026-07-29 |
+| Settlement | T+2 business days, TARGET calendar |
+| Coupon schedule | generated backward from maturity, unadjusted dates, no holiday calendar |
+| Coupons | fixed amounts: nominal × coupon rate / frequency |
+| Accrued interest | day count of each bond (ACT/ACT) |
+| Curve time | ACT/ACT ISDA, from the settlement date |
+| Zero rates | continuously compounded |
+
+### Method
+
+The settlement date is the reference date for accrued interest and for all future cash flows:
 
 ```text
-Settlement Date = Valuation Date + 2 TARGET business days
+Euronext clean price
+        │
+        ▼
+Valuation date (T) ── + 2 business days (TARGET) ──► Settlement date
+                                                          │
+                                   ┌──────────────────────┴──────────────────────┐
+                                   ▼                                             ▼
+                      Accrued interest up to settlement             Future cash flows after settlement
+                                   │                                             │
+                                   └──────────────────────┬──────────────────────┘
+                                                          ▼
+                                    Dirty price ──► Sequential bootstrap ──► Discount factors ──► Zero rates
 ```
 
-For the valuation date of 2026-07-29 (a Wednesday), the settlement date is Friday 2026-07-31.
-
-The settlement date is the reference date for accrued coupon interest, for the future cash flows and for the time to maturity of the zero-coupon rates.
-
-### Bootstrap Methodology
-
-The bootstrap is performed in four main steps:
-
-1. Calculate the future cash flows of each bond. Only the cash flows strictly after the settlement date are kept, since a coupon paid on the settlement date belongs to the seller. Each coupon is `NOMINAL × coupon rate / frequency`, and the nominal is added to the last cash flow.
-
-2. Calculate dirty prices from the clean prices provided in the dataset. The accrued interest is the coupon amount multiplied by the fraction of the current coupon period elapsed at the settlement date, measured with the day-count convention of the bond. It is zero when the settlement date is a coupon date.
-
-3. Bootstrap discount factors using:
+1. **Cash flows** (`scripts/bonds/cashflow.py`): coupons and principal paid after settlement.
+2. **Dirty prices** (`scripts/bonds/dirty_price.py`): clean price plus the coupon accrued between the last coupon date and settlement.
+3. **Sequential bootstrap** (`scripts/bonds/bootstrap.py`): bonds are sorted by maturity, and each one gives the discount factor of its last payment date once all its earlier payment dates are known:
 
    ```text
-   Dirty Price = Σ Cash Flow(t) × Discount Factor(t)
+   DF(t_n) = [Dirty price - Σ_{i<n} CF(t_i) · DF(t_i)] / CF(t_n)
    ```
 
-4. Derive zero-coupon rates from the resulting discount factors.
+   No interpolation is used: every intermediate payment date must coincide with a maturity already bootstrapped. To meet this condition, the maturities of the 2037, 2039, 2041 and 2044 OATs were shifted by one month. This simplification may have a small effect on the curve.
+4. **Zero rates** (`scripts/bonds/zero_rates.py`): `r(t) = -ln(DF(t)) / t`, with `t` in ACT/ACT ISDA from settlement.
 
-The overall valuation and bootstrap process can be summarized as follows:
+### QuantLib benchmark
 
-```text
-                 Euronext Clean Price
-                         │
-                         ▼
-                 Evaluation Date (T)
-                         │
-                         │ + 2 TARGET business days
-                         ▼
-                  Settlement Date
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-              ▼                     ▼
-       Accrued Interest       Future Cash Flows
-       up to Settlement       after Settlement
-              │                     │
-              └──────────┬──────────┘
-                         ▼
-                    Dirty Price
-                         │
-                         ▼
-                 Sequential Bootstrap
-                         │
-                         ▼
-                Discount Factors
-                         │
-                         ▼
-               Zero-Coupon Rates
-```
+`scripts/bonds/quantlib/quantlib_bootstrap.py` builds an independent curve with `FixedRateBondHelper` and `PiecewiseLogLinearDiscount` (log-linear interpolation of discount factors), from the same clean prices and conventions.
 
-The bootstrap methodology is implemented from scratch.
+### Results
 
-At each maturity, the discount factor corresponding to the current maturity is obtained by subtracting the present value of previously bootstrapped cash flows from the dirty price and dividing by the remaining cash flow:
+The two curves agree within **0.25 bp** at every maturity. Two points stand out: 2037 (+0.25 bp, one of the four maturities shifted by one month) and 2028 (−0.07 bp). Everywhere else the difference stays below 0.025 bp. It does not grow with maturity. The precise source of the two larger deviations has not been identified. QuantLib interpolates between pillars while the from-scratch bootstrap does not need to, which is a plausible lead. Other QuantLib interpolations (`PiecewiseLogCubicDiscount`, `PiecewiseLinearZero`, `PiecewiseCubicZero`) were also tested.
 
-```text
-DF(t_n) = [Dirty Price - Σ Cash Flow(t_i) × DF(t_i)] / Cash Flow(t_n)
-```
+![Zero-coupon curve](results/bonds/zero_coupon_curve.png)
 
-Only previously bootstrapped discount factors are used. Therefore, the from-scratch bootstrap is performed sequentially without interpolation.
-The bonds are sorted by successive maturity dates, from the shortest maturity to the longest.
-Each bond therefore contributes to the bootstrap only after the discount factors associated with earlier maturities have been determined.
-This sequential maturity structure is essential to the from-scratch bootstrap and avoids relying on future zero rates or interpolation.
-The code enforces it: it raises an error if two bonds share the same maturity, or if a cash flow date does not match the maturity of a previously bootstrapped bond.
+![Discount factors: from scratch vs QuantLib](results/bonds/comparison_of_discountfactor.png)
 
-### QuantLib Benchmark
+![Spread between zero-coupon rates: from scratch − QuantLib](results/bonds/spread_btw_zero_coupon_rate.png)
 
-QuantLib is used for date handling (calendars, coupon schedules and day counters) and to implement an independent bootstrap benchmark.
-Each bond is priced from its clean price with `FixedRateBondHelper`, using the same settlement convention as the from-scratch implementation.
-The QuantLib curve is constructed using `PiecewiseLogLinearDiscount`, providing a LogLinear interpolation between bootstrapped discount factors.
-This provides a useful intermediate approach between the sequential from-scratch bootstrap and a fully interpolated curve, allowing the two implementations to be compared and their differences analysed.
+## OIS Bootstrap
 
-### Zero-Coupon Rates
+### Data
 
-Zero-coupon rates are calculated using continuous compounding in both implementations:
+Bloomberg curve exports for €STR and SOFR OIS, on 2021-06-30, 2022-06-30, 2022-12-30, 2023-03-31, 2023-10-31, 2024-12-30 and 2026-10-02. Each file holds 32 swaps from 1 week to 50 years, plus the overnight rate, which is excluded from the bootstrap. The quotes are not published: see [Data Availability](#data-availability).
+
+Expected input: one CSV file per date, `data/raw/ois/<ESTR|SOFR>/<YYYY-MM-DD>.csv`, with at least the columns `Ticker`, `Term`, `Unit` (`DY`, `WK`, `MO`, `YR`), `Bid`, `Ask` (in %), `Daycount` and `Freq` (`0` for the overnight rate).
+
+### Conventions
+
+| Item | €STR | SOFR |
+|---|---|---|
+| Calendar | TARGET | US SOFR |
+| Settlement | T+2 business days | T+2 business days |
+| Fixed leg | annual payments (one payment up to 1 year), ACT/360 | same |
+| Schedule | generated forward from settlement, Modified Following | same |
+| Curve time | ACT/360, from settlement | same |
+| Quote used | mid = (bid + ask) / 2 | same |
+
+Generating the schedule forward from settlement means that an 18-month swap pays after 12 months and then after a short 6-month period.
+
+### Method
+
+At inception, an OIS is worth zero. Its floating leg, compounded overnight and discounted on the same curve, is worth par. The swap can therefore be priced as a **par bond** paying the fixed rate `K` (the mid quote):
 
 ```text
-z(T) = -ln(DF(T)) / T
+Σ_i K · τ_i · DF(t_i) + DF(t_n) = 1        τ_i: accrual fraction (ACT/360) of period i
 ```
 
-`T` is the Actual/Actual ISDA year fraction between the settlement date and the maturity.
+1. **Cash flows** (`scripts/ois/cashflow.py`): the fixed-leg schedule of each swap, with the nominal repaid at maturity.
+2. **Pillars** (`scripts/ois/pillar.py`): swaps are sorted by maturity, and each maturity is a pillar.
+3. **Bootstrap** (`scripts/ois/bootstrap.py`, `scripts/ois/pricing.py`): for each pillar, the discount factor at maturity is the root of the swap NPV (present value of the fixed leg plus nominal, minus nominal), found with `scipy.optimize.brentq` on `[10⁻⁶, 2]` with `xtol = 10⁻¹⁴`. Unlike the bond case, long swaps have annual payment dates that are not pillars (for example years 13 and 14 of a 15-year swap when the previous pillar is 12 years). Their discount factors are interpolated **log-linearly** between the last known pillar and the maturity, as a function of the unknown maturity discount factor. They are therefore solved jointly with it inside the root-finding.
+4. **Zero rates** (`scripts/ois/zero_rates.py`): `r(t) = -ln(DF(t)) / t`, with `t` in ACT/360 from settlement, at each pillar.
 
-## Implementation
+### QuantLib benchmark
 
-The project is organized into separate folders for data, scripts, and results:
+`scripts/ois/quantlib/quantlib_bootstrap.py` builds an independent curve with `OISRateHelper` (index `Estr()` or `Sofr()`, same calendars, forward schedule) and `PiecewiseLogLinearDiscount`, from the same mid quotes.
+
+### Results
+
+On all 14 curves, the from-scratch and QuantLib curves agree within **10⁻⁷ bp** on zero rates and **3·10⁻¹³** on discount factors at every pillar, which is numerical precision. Unlike the OAT case, this agreement is expected: both curves use the same instruments, the same conventions and the same log-linear interpolation of discount factors. It confirms that the schedules, calendars, day counts and interpolation are implemented consistently with QuantLib.
+
+Plots and CSV outputs of the OIS bootstrap are not published, because they would reveal the Bloomberg quotes.
+
+### Output for the NSS project
+
+`run_ois()` also gathers all the curves in a single long-format file, `results/ois/zero_rate.csv`, with one row per curve, date and pillar: `Curve`, `EvaluationDate`, `SettlementDate`, `Ticker`, `Maturity`, `TimeToMaturity`, `DiscountFactor`, `ZeroCouponRate`, `ZeroCouponRatePct`, `Bid`, `Ask` and `BidAskSpreadBp`. This file is the OIS input of the [Nelson-Siegel-Svensson calibration project](https://github.com/Target-Justin/nelson-siegel-svensson-oat-calibration).
+
+## Project Structure
 
 ```text
-zero-coupon-yield-curve-bootstrap/
-├── data/
-│   ├── raw/                  # Raw input data (dataset.csv)
-│   └── processed/            # Processed data
-├── results/
-│   └── quantlib/             # QuantLib results
-├── scripts/
-│   ├── quantlib/             # QuantLib scripts
-│   └── utils/                # Utilities and plotting
-├── config.py                 # Project parameters
-├── main.py                   # Main entry point
-├── README.md                 # Project documentation
-└── requirements.txt          # Python dependencies
+main.py                                   # entry point: python main.py [bonds|ois|all]
+config.py                                 # paths and market conventions
+scripts/
+├── bonds/
+│   ├── pipeline.py                       # run_bonds
+│   ├── cashflow.py                       # coupon and principal cash flows
+│   ├── dirty_price.py                    # accrued interest and dirty prices
+│   ├── bootstrap.py                      # sequential bootstrap
+│   ├── zero_rates.py
+│   ├── bootstrap_validation.py           # comparison with QuantLib
+│   └── quantlib/
+│       └── quantlib_bootstrap.py         # FixedRateBondHelper benchmark
+├── ois/
+│   ├── pipeline.py                       # run_ois (all dates, gathered output file)
+│   ├── mid.py                            # mid quotes, overnight rate excluded
+│   ├── cashflow.py                       # fixed-leg schedules
+│   ├── pillar.py                         # pillar ordering and root-finding
+│   ├── pricing.py                        # swap NPV and log-linear interpolation
+│   ├── bootstrap.py
+│   ├── zero_rates.py
+│   ├── bootstrap_validation.py           # comparison with QuantLib
+│   └── quantlib/
+│       └── quantlib_bootstrap.py         # OISRateHelper benchmark
+└── common/
+    ├── common.py                         # date conversions, day counts, interpolation
+    └── plots.py
+data/
+├── raw/bonds/dataset.csv                 # OAT inputs (included)
+├── raw/ois/ESTR/, raw/ois/SOFR/          # OIS quotes (Bloomberg, not included)
+└── processed/bonds/                      # cash flows, dirty prices, discount factors
+results/
+├── bonds/                                # OAT curve, QuantLib benchmark, comparison, plots
+└── ois/                                  # OIS outputs (not included)
 ```
 
-### Main components
+## Usage
 
-- `cashflow.py`: generates the future cash flows of each bond.
-- `dirty_price.py`: converts clean prices into dirty prices by calculating accrued interest.
-- `bootstrap.py`: performs the sequential discount-factor bootstrap.
-- `zero_rates.py`: converts discount factors into zero-coupon rates.
-- `quantlib/bootstrap_quantlib.py`: builds the equivalent curve using QuantLib.
-- `bootstrap_validation.py`: compares the from-scratch and QuantLib results.
-- `utils/plots.py`: generates the figures described in `PLOT_CONFIG`.
-- `utils/utils.py`: contains date conversion and day-count utilities.
-- `config.py`: centralises parameters, conventions, paths and plotting configuration.
-- `main.py`: runs the complete pipeline.
+```bash
+git clone https://github.com/Target-Justin/Zero-Coupon-Yield-Curve-Bootstrap.git
+cd Zero-Coupon-Yield-Curve-Bootstrap
+pip install -r requirements.txt
 
-### Configuration
+python main.py bonds    # OAT bootstrap: reproduces every published result
+python main.py ois      # OIS bootstrap: requires the files described in "OIS Bootstrap > Data"
+python main.py          # both (the OIS step is skipped if no OIS file is found)
+```
 
-All conventions and settings are defined in `config.py`:
+Market conventions (calendars, settlement lags, schedule rules, day counts) and solver settings are centralized in `config.py`.
 
-- `NOMINAL`: nominal amount of each bond (100);
-- `SCHEDULE_CALENDAR`: calendar used to generate coupon dates (`ql.NullCalendar`, unadjusted dates);
-- `SETTLEMENT_CALENDAR` and `SETTLEMENT_DAYS`: calendar (`ql.TARGET`) and delay (2 business days) of the settlement;
-- `CURVE_DAY_COUNTER`: day counter used to convert discount factors into zero-coupon rates (Actual/Actual ISDA);
-- `SHOW_PLOTS`: whether the figures flagged with `"show": True` in `PLOT_CONFIG` are displayed (the zero-coupon curve and the spread between both zero-coupon rates). All the figures are saved whatever the value;
-- `PLOT_CONFIG`: path, title, axis label and series of each figure.
+## Data Availability
 
-### Input Data
+- **OAT data** come from public sources (AFT, Euronext) and are included.
+- **OIS data** come from Bloomberg and cannot be redistributed. The raw quotes and everything derived from them (cash flows, discount factors, zero rates, plots) are excluded by `.gitignore`: `data/raw/ois/*/*.csv`, `data/processed/ois/` and `results/ois/`. The folder structure is kept with `.gitkeep` files, so you can drop your own exports in `data/raw/ois/ESTR/` and `data/raw/ois/SOFR/`.
 
-`data/raw/dataset.csv` contains one row per bond with the following columns: `Bond`, `Maturity`, `EvaluationDate`, `AccrualStartDate`, `IssueDate`, `Frequency` (coupons per year), `Coupon` (annual rate, as a decimal), `CleanPrice` and `DayCount` (`ACT/ACT`, `ACT/360`, `ACT/365` or `30/360`).
+## Limitations
 
-## Results
+- **OAT maturities adjusted**: four maturities were shifted by one month to keep the bond bootstrap free of interpolation.
+- **OIS treated as par bonds**: this relies on discounting on the same curve as the one used for projection (single-curve OIS discounting). Payment lags of the floating leg and convexity effects are ignored.
+- **No interpolation choice studied for OIS**: only log-linear interpolation of discount factors is implemented, which gives piecewise flat forward rates between pillars.
+- **Data check**: the €STR export labelled 2021-06-30 has rate levels inconsistent with that date and will be re-extracted. It does not affect the validation against QuantLib, which uses the same quotes and dates on both sides.
 
-The project produces the following main outputs:
+## Requirements
 
-- Zero-coupon yield curve
-- Discount factor curves
-- Comparison between the results obtained from the bootstrap and QuantLib
-- CSV files containing the intermediate and final results
+Developed and tested with Python 3.14:
 
-The processed data in `data/processed` includes:
+```text
+numpy==2.5.1
+scipy==1.18.0
+pandas==3.0.5
+QuantLib==1.43
+matplotlib==3.11.1
+```
 
-- `cashflow.csv`
-- `dirty_price.csv`
-- `discount_factor.csv`
+Install with `pip install -r requirements.txt`.
 
-The resulting zero-coupon rates (`zero_rate.csv`) and the comparison with QuantLib (`comparison_with_quantlib_bootstrap.csv`) are stored in `results/`, while the QuantLib zero-coupon rates (`quantlib_zero_rate.csv`) are stored in `results/quantlib/`.
+## References
 
-### Bootstrap Comparison
-
-The from-scratch bootstrap produces a zero-coupon curve that is very close to the QuantLib result. Across the maturities considered, the maximum difference is approximately 0.25 basis points, observed at the 2037 maturity. Outside of this point, the from-scratch implementation generally produces slightly lower zero-coupon rates than QuantLib.
-
-#### Observed Differences
-
-The differences are not uniform across maturities. Some local deviations can be observed at different points along the curve, while the overall difference remains small.
-Both implementations use the same bond dataset and market prices. However, the precise source of the observed differences has not been investigated in detail in this project.
-Different QuantLib interpolation methods were also tested, including `PiecewiseLogLinearDiscount`, `PiecewiseLogCubicDiscount`, `PiecewiseLinearZero`, and `PiecewiseCubicZero`.
-The two implementations may differ in several aspects of the curve construction, but no specific cause is identified here.
-
-#### Overall Behaviour
-
-The differences do not increase systematically with maturity. Two points stand out from the general noise floor: 2037 (+0.25 bp, the largest deviation) and 2028 (-0.07 bp, the second largest). Outside these two points, differences remain below approximately 0.02 basis points across the remaining maturities, with the exception of a marginal excursion at 2036 (-0.02 bp).
-The comparison shows that the two implementations produce very similar zero-coupon curves for the dataset considered. It therefore provides a useful consistency check for the from-scratch implementation, while acknowledging that the two curves are not numerically identical.
-The precise reasons for the remaining discrepancies are left open for further investigation.
-
-### Visualizations
-
-![Zero-coupon curve](results/zero_coupon_curve.png)
-
-![Discount factor plots](results/comparison_of_discountfactor.png)
-
-![Spread between zero-coupon rates](results/spread_btw_zero_coupon_rate.png)
-
-The other figures (QuantLib zero-coupon curve, comparison of zero-coupon rates, spread between discount factors) are saved in `results/` and `results/quantlib/`.
-
-## Assumptions and Limitations
-
-- Valuation date: 2026-07-29
-- Settlement: 2 TARGET business days after the valuation date (2026-07-31)
-- Day-count convention: Actual/Actual ISDA
-- Coupon dates: unadjusted (`ql.NullCalendar`, no holiday calendar applied to coupon dates). A coupon falling on a non-business day is therefore discounted at its contractual date, not at the following business day.
-- Nominal: 100
-- Instruments: French government bonds (OAT)
-- Maturities: OATs are sorted by increasing maturity and are treated sequentially in the bootstrap.
-
-The bootstrap is performed sequentially, using only information available up to the current maturity.
-Therefore, interpolation is not used, as it would require knowledge of a future maturity point that has not yet been bootstrapped.
-
-To accommodate this constraint, the maturities of some OATs were slightly adjusted.
-The affected maturities are 2037, 2039, 2041, and 2044.
-In each case, the maturity was shifted by one month so that the bootstrap could be performed without relying on interpolation or on future zero rates.
-
-These adjustments are simplifications made for the purpose of the bootstrap and may have a minor impact on the resulting zero-coupon curve.
-
-## How to Run
-
-The project was developed and tested with Python 3.14.
-
-1. Clone the repository and install the dependencies:
-
-   ```bash
-   git clone https://github.com/Target-Justin/Zero-Coupon-Yield-Curve-Bootstrap.git
-   cd Zero-Coupon-Yield-Curve-Bootstrap
-   pip install -r requirements.txt
-   ```
-
-   Alternatively, you can download the repository as a ZIP file and extract it locally.
-
-2. Run the project from the root folder of the repository:
-
-   ```bash
-   python main.py
-   ```
-
-   You can also open the repository folder in VS Code and run `main.py`. The paths in `config.py` are relative to the root folder, so the project has to be run from there.
-
-3. To display the figures flagged with `"show": True` in `PLOT_CONFIG`, set `SHOW_PLOTS = True` in `config.py`.
-
-## Data Sources
-
-The dataset was collected from:
-
-- Agence France Trésor (AFT): https://www.aft.gouv.fr/fr/encours-detaille-oat
-- Euronext: https://www.euronext.com/en
-
-## Reference
-
-*Options, Futures, and Other Derivatives*, John Hull, 11th edition, ISBN: 978-1-292-41065-4
+- Hull, J. C. *Options, Futures, and Other Derivatives*, 11th edition. ISBN 978-1-292-41065-4.
+- Ametrano, F. M., & Bianchetti, M. (2013). *Everything You Always Wanted to Know About Multiple Interest Rate Curve Bootstrapping but Were Afraid to Ask*. SSRN Working Paper.
+- QuantLib documentation: https://www.quantlib.org
