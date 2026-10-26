@@ -22,6 +22,7 @@ The zero-coupon curves are the input of my [Nelson-Siegel-Svensson calibration p
 - [OIS Bootstrap](#ois-bootstrap)
 - [Project Structure](#project-structure)
 - [Usage](#usage)
+- [Reproducibility](#reproducibility)
 - [Data Availability](#data-availability)
 - [Limitations](#limitations)
 - [Requirements](#requirements)
@@ -96,9 +97,7 @@ The two curves agree within **0.25 bp** at every maturity. Two points stand out:
 
 ### Data
 
-Bloomberg curve exports for €STR and SOFR OIS, on 2021-06-30, 2022-06-30, 2022-12-30, 2023-03-31, 2023-10-31, 2024-12-30 and 2026-10-02. Each file holds 32 swaps from 1 week to 50 years, plus the overnight rate, which is excluded from the bootstrap. The quotes are not published: see [Data Availability](#data-availability).
-
-Expected input: one CSV file per date, `data/raw/ois/<ESTR|SOFR>/<YYYY-MM-DD>.csv`, with at least the columns `Ticker`, `Term`, `Unit` (`DY`, `WK`, `MO`, `YR`), `Bid`, `Ask` (in %), `Daycount` and `Freq` (`0` for the overnight rate).
+€STR and SOFR OIS quotes extracted from the Bloomberg Terminal with the swap manager (`SWPM`), on 2021-06-30, 2022-06-30, 2022-12-30, 2023-03-31, 2023-10-31, 2024-12-30 and 2026-10-02. Each file holds 32 swaps from 1 week to 50 years, plus the overnight rate, which is excluded from the bootstrap. The quotes are not published: see [Data Availability](#data-availability). The extraction steps and the expected file format are described in [Reproducibility](#reproducibility).
 
 ### Conventions
 
@@ -181,21 +180,51 @@ results/
 ## Usage
 
 ```bash
-git clone https://github.com/Target-Justin/Zero-Coupon-Yield-Curve-Bootstrap.git
-cd Zero-Coupon-Yield-Curve-Bootstrap
+git clone https://github.com/Target-Justin/zero-coupon-yield-curve-bootstrap.git
+cd zero-coupon-yield-curve-bootstrap
 pip install -r requirements.txt
 
 python main.py bonds    # OAT bootstrap: reproduces every published result
-python main.py ois      # OIS bootstrap: requires the files described in "OIS Bootstrap > Data"
+python main.py ois      # OIS bootstrap: requires the Bloomberg files described in "Reproducibility"
 python main.py          # both (the OIS step is skipped if no OIS file is found)
 ```
 
 Market conventions (calendars, settlement lags, schedule rules, day counts) and solver settings are centralized in `config.py`.
 
+## Reproducibility
+
+### OAT
+
+The OAT part is fully reproducible. `data/raw/bonds/dataset.csv` gathers the public inputs (AFT and Euronext, see [OAT Bootstrap > Data](#data)), and `python main.py bonds` regenerates every file of `data/processed/bonds/` and `results/bonds/`.
+
+### OIS
+
+The OIS quotes come from the Bloomberg Terminal and require a Bloomberg access. They were extracted with the swap manager, `SWPM <GO>`, from the OIS swaps of each index:
+
+1. Open `SWPM <GO>` and set up an OIS swap on the index: €STR for EUR, SOFR for USD.
+2. Set the curve date to the valuation date.
+3. Take the OIS curve of the index and its constituents: the OIS swaps from 1 week to 50 years, plus the overnight rate.
+4. Export, for each instrument, its ticker, tenor, bid and ask quotes, day count and payment frequency.
+5. Save one CSV file per index and date as `data/raw/ois/<ESTR|SOFR>/<YYYY-MM-DD>.csv`. The valuation date is read from the file name.
+
+Each file must contain at least the following columns:
+
+| Column | Content |
+|---|---|
+| `Ticker` | Bloomberg ticker of the instrument |
+| `Term`, `Unit` | tenor, as a number and a unit (`DY`, `WK`, `MO`, `YR`) |
+| `Bid`, `Ask` | quotes, in % |
+| `Daycount` | day count of the fixed leg (`ACT/360`, required by the QuantLib benchmark) |
+| `Freq` | payment frequency (`0` marks the overnight rate, which is excluded from the bootstrap) |
+
+`python main.py ois` then bootstraps every file found, compares each curve with QuantLib and writes the results in `results/ois/`, including the gathered `results/ois/zero_rate.csv` used by the [Nelson-Siegel-Svensson calibration project](https://github.com/Target-Justin/nelson-siegel-svensson-oat-calibration).
+
+The curves themselves depend on the quotes exported (date, pricing source, snapshot time). The agreement with QuantLib does not: both bootstraps use the same quotes, so it should be reproduced with any export that follows this format.
+
 ## Data Availability
 
 - **OAT data** come from public sources (AFT, Euronext) and are included.
-- **OIS data** come from Bloomberg and cannot be redistributed. The raw quotes and everything derived from them (cash flows, discount factors, zero rates, plots) are excluded by `.gitignore`: `data/raw/ois/*/*.csv`, `data/processed/ois/` and `results/ois/`. The folder structure is kept with `.gitkeep` files, so you can drop your own exports in `data/raw/ois/ESTR/` and `data/raw/ois/SOFR/`.
+- **OIS data** come from Bloomberg and cannot be redistributed. The raw quotes and everything derived from them (cash flows, discount factors, zero rates, plots) are excluded by `.gitignore`: `data/raw/ois/*/*.csv`, `data/processed/ois/` and `results/ois/`. The folder structure is kept with `.gitkeep` files, so you can drop your own exports in `data/raw/ois/ESTR/` and `data/raw/ois/SOFR/` (see [Reproducibility](#reproducibility)).
 
 ## Limitations
 
