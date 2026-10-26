@@ -8,6 +8,7 @@ def to_ql_date(date):
     return ql.Date(date.day, date.month, date.year)
 
 def get_day_counter(day_count):
+
     day_count = day_count.upper().replace("-", "/").replace(" ", "")
 
     if day_count == "ACT/ACT":
@@ -26,3 +27,7 @@ def get_day_counter(day_count):
         raise ValueError(
             f"Unknown daycount convention : {day_count}"
         )
+
+def log_linear_interpolation(t : float, t_last : float, last_discount_factor : float, t_n : float, x : float) -> float:
+    w = (t - t_last)/(t_n - t_last)
+    return last_discount_factor * (x / last_discount_factor)**w

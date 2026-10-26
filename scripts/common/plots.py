@@ -2,21 +2,27 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from config import PLOT_CONFIG, SHOW_PLOTS
+from pathlib import Path
 
-def plot(df: pd.DataFrame, key: str) -> None:
+def plot(df: pd.DataFrame, key: str, output_dir: Path = None) -> None:
     """Draw the figure described by PLOT_CONFIG[key] against the "Maturity" column.
 
-    The figure is always saved at the path given in the config. It is displayed only
-    if SHOW_PLOTS is True and the entry of the figure has "show": True. It is always
-    closed afterwards so that figures do not accumulate in memory.
+    The figure is saved at the path given in the config, optionally shown
+    (SHOW_PLOTS), and always closed so that looping over many files does not
+    accumulate open figures.
 
     Args:
-        df: DataFrame with a "Maturity" column and the columns named in the series
-            of the config entry.
+        df: DataFrame with a "Maturity" column and the columns named in the spec.
         key: Key of the figure in PLOT_CONFIG.
+        output_dir: Folder where the figure is saved, under the file name given in the config.
+                    If None, the path given in the config is used.
     """
-    
     spec = PLOT_CONFIG[key]
+
+    if output_dir is None:
+        path = spec["path"]
+    else:
+        path = output_dir / spec["path"].name
 
     fig, ax = plt.subplots(figsize=spec.get("figsize", (12, 6)))
 
@@ -40,7 +46,7 @@ def plot(df: pd.DataFrame, key: str) -> None:
 
     fig.autofmt_xdate()
     fig.tight_layout()
-    fig.savefig(spec["path"], dpi=300, bbox_inches="tight")
+    fig.savefig(path, dpi=300, bbox_inches="tight")
 
     if SHOW_PLOTS and spec.get("show", False):
         plt.show()
