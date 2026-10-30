@@ -5,7 +5,7 @@
 This project builds zero-coupon curves **from scratch** and validates each one against an independent **QuantLib** benchmark, on two kinds of instruments:
 
 - **French government bonds (OATs)**: 19 bonds maturing between 2027 and 2045, valued on 2026-07-29 (public data, included);
-- **Overnight indexed swaps (OIS)** on €STR and SOFR, from 1 week to 50 years, on 7 valuation dates between 2021 and 2026 (Bloomberg data, *not* included).
+- **Overnight indexed swaps (OIS)** on €STR and SOFR, from 1 week to 50 years, 13 curves (6 valuation dates for €STR, 7 for SOFR) between 2021 and 2026 (Bloomberg data, *not* included).
 
 It started as a personal summer project alongside John Hull's *Options, Futures, and Other Derivatives*, to understand how discount and zero-coupon curves are built and how much market conventions matter. The OIS extension adds what the bond case did not need: interpolation between pillars, a root-finding step, and per-index calendars.
 
@@ -14,7 +14,7 @@ The zero-coupon curves are the input of my [Nelson-Siegel-Svensson calibration p
 ## Highlights
 
 - **OAT bootstrap**: the from-scratch curve matches QuantLib within **0.25 bp** at every maturity, and within 0.025 bp at all but two of them.
-- **OIS bootstrap**: on all 14 curves (2 indices × 7 dates, 32 pillars each), the from-scratch zero rates match QuantLib's `OISRateHelper` curve within **10⁻⁷ bp**, and the discount factors within 3·10⁻¹³.
+- **OIS bootstrap**: on all 13 curves (6 €STR and 7 SOFR, 32 pillars each), the from-scratch zero rates match QuantLib's `OISRateHelper` curve within **10⁻⁷ bp**, and the discount factors within 3·10⁻¹³.
 
 ## Contents
 
@@ -97,7 +97,7 @@ The two curves agree within **0.25 bp** at every maturity. Two points stand out:
 
 ### Data
 
-€STR and SOFR OIS quotes extracted from the Bloomberg Terminal with the swap manager (`SWPM`), on 2021-06-30, 2022-06-30, 2022-12-30, 2023-03-31, 2023-10-31, 2024-12-30 and 2026-10-02. Each file holds 32 swaps from 1 week to 50 years, plus the overnight rate, which is excluded from the bootstrap. The quotes are not published: see [Data Availability](#data-availability). The extraction steps and the expected file format are described in [Reproducibility](#reproducibility).
+€STR and SOFR OIS quotes extracted from the Bloomberg Terminal with `ICVS`, on 2022-06-30, 2022-12-30, 2023-03-31, 2023-10-31, 2024-12-30 and 2026-10-02 for both indices, and on 2021-06-30 for SOFR only: 13 curves in total. The €STR export of 2021-06-30 is excluded (see [Limitations](#limitations)). Each file holds 32 swaps from 1 week to 50 years, plus the overnight rate, which is excluded from the bootstrap. The quotes are not published: see [Data Availability](#data-availability). The extraction steps and the expected file format are described in [Reproducibility](#reproducibility).
 
 ### Conventions
 
@@ -131,7 +131,7 @@ At inception, an OIS is worth zero. Its floating leg, compounded overnight and d
 
 ### Results
 
-On all 14 curves, the from-scratch and QuantLib curves agree within **10⁻⁷ bp** on zero rates and **3·10⁻¹³** on discount factors at every pillar, which is numerical precision. Unlike the OAT case, this agreement is expected: both curves use the same instruments, the same conventions and the same log-linear interpolation of discount factors. It confirms that the schedules, calendars, day counts and interpolation are implemented consistently with QuantLib.
+On all 13 curves, the from-scratch and QuantLib curves agree within **10⁻⁷ bp** on zero rates and **3·10⁻¹³** on discount factors at every pillar, which is numerical precision. Unlike the OAT case, this agreement is expected: both curves use the same instruments, the same conventions and the same log-linear interpolation of discount factors. It confirms that the schedules, calendars, day counts and interpolation are implemented consistently with QuantLib.
 
 Plots and CSV outputs of the OIS bootstrap are not published, because they would reveal the Bloomberg quotes.
 
@@ -166,7 +166,7 @@ scripts/
 │   └── quantlib/
 │       └── quantlib_bootstrap.py         # OISRateHelper benchmark
 └── common/
-    ├── common.py                         # date conversions, day counts, interpolation
+    ├── common.py                         # date conversions, day counts, interpolation, CSV reading
     └── plots.py
 data/
 ├── raw/bonds/dataset.csv                 # OAT inputs (included)
@@ -199,11 +199,11 @@ The OAT part is fully reproducible. `data/raw/bonds/dataset.csv` gathers the pub
 
 ### OIS
 
-The OIS quotes come from the Bloomberg Terminal and require a Bloomberg access. They were extracted with the swap manager, `SWPM <GO>`, from the OIS swaps of each index:
+The OIS quotes come from the Bloomberg Terminal and require a Bloomberg access. They were extracted with `ICVS <GO>`, from the OIS swaps of each index:
 
-1. Open `SWPM <GO>` and set up an OIS swap on the index: €STR for EUR, SOFR for USD.
+1. Open `ICVS <GO>` and select the OIS curve of the index: €STR for EUR, SOFR for USD.
 2. Set the curve date to the valuation date.
-3. Take the OIS curve of the index and its constituents: the OIS swaps from 1 week to 50 years, plus the overnight rate.
+3. Take the constituents of the curve: the OIS swaps from 1 week to 50 years, plus the overnight rate.
 4. Export, for each instrument, its ticker, tenor, bid and ask quotes, day count and payment frequency.
 5. Save one CSV file per index and date as `data/raw/ois/<ESTR|SOFR>/<YYYY-MM-DD>.csv`. The valuation date is read from the file name.
 
@@ -214,12 +214,16 @@ Each file must contain at least the following columns:
 | `Ticker` | Bloomberg ticker of the instrument |
 | `Term`, `Unit` | tenor, as a number and a unit (`DY`, `WK`, `MO`, `YR`) |
 | `Bid`, `Ask` | quotes, in % |
-| `Daycount` | day count of the fixed leg (`ACT/360`, required by the QuantLib benchmark) |
+| `Daycount` | day count of the fixed leg (`ACT/360`, required by the QuantLib benchmark: a quote in another day count, such as an Euribor swap converted to an OIS equivalent by Bloomberg, stops the run) |
 | `Freq` | payment frequency (`0` marks the overnight rate, which is excluded from the bootstrap) |
 
 `python main.py ois` then bootstraps every file found, compares each curve with QuantLib and writes the results in `results/ois/`, including the gathered `results/ois/zero_rate.csv` used by the [Nelson-Siegel-Svensson calibration project](https://github.com/Target-Justin/nelson-siegel-svensson-oat-calibration).
 
 The curves themselves depend on the quotes exported (date, pricing source, snapshot time). The agreement with QuantLib does not: both bootstraps use the same quotes, so it should be reproduced with any export that follows this format.
+
+### CSV format
+
+The raw CSV files (`data/raw/bonds/dataset.csv` and the OIS exports) can be saved either in the English format (`,` separator, `.` decimal mark, dates as `YYYY-MM-DD`) or in the format written by a French-locale Excel (`;` separator, `,` decimal mark, dates as `DD/MM/YYYY`, UTF-8 with or without BOM, or Windows-1252). `read_csv_robust` (`scripts/common/common.py`) detects the format on the header line. `parse_dates` reads the dates with an explicit format, because `pd.to_datetime` would read an ambiguous date such as `05/06/2027` as May 6th without any error. A numeric column that is not read as numbers (`Bid`, `Ask`, `Coupon`, etc.) stops the run with an explicit message. The valuation date of an OIS export is read from its file name, which must stay `YYYY-MM-DD.csv`.
 
 ## Data Availability
 
@@ -231,7 +235,7 @@ The curves themselves depend on the quotes exported (date, pricing source, snaps
 - **OAT maturities adjusted**: four maturities were shifted by one month to keep the bond bootstrap free of interpolation.
 - **OIS treated as par bonds**: this relies on discounting on the same curve as the one used for projection (single-curve OIS discounting). Payment lags of the floating leg and convexity effects are ignored.
 - **No interpolation choice studied for OIS**: only log-linear interpolation of discount factors is implemented, which gives piecewise flat forward rates between pillars.
-- **Data check**: the €STR export labelled 2021-06-30 has rate levels inconsistent with that date and will be re-extracted. It does not affect the validation against QuantLib, which uses the same quotes and dates on both sides.
+- **€STR curve of 2021-06-30 excluded**: the first export labelled 2021-06-30 had rate levels inconsistent with that date. The re-extracted one has consistent levels, but from 2 to 50 years it holds Euribor swaps (30/360) that Bloomberg converts to OIS equivalents (`Final Bid Rate`, `Final Ask Rate`), not OIS swaps. The QuantLib benchmark rejects them (`OISRateHelper` takes the ACT/360 day count of the index), and the from-scratch bootstrap, which reads `Bid` and `Ask`, would silently use the raw Euribor rates as OIS rates, 9 to 16 bp too high. This date is therefore only available for SOFR (13 curves instead of 14). The validation against QuantLib is not affected, since it uses the same quotes and dates on both sides.
 
 ## Requirements
 
