@@ -8,6 +8,7 @@ from scripts.bonds.zero_rates import generate_zero_coupon_curve
 from scripts.bonds.quantlib.quantlib_bootstrap import generate_quantlib_zero_coupon_rate
 from scripts.bonds.bootstrap_validation import compare_zero_coupon
 from scripts.common.plots import plot
+from scripts.common.common import read_csv_robust, parse_dates
 
 def run_bonds():
     """Run the OAT bootstrap on the dataset data/raw/bonds/dataset.csv.
@@ -16,15 +17,15 @@ def run_bonds():
     and the results (zero-coupon rates, QuantLib benchmark, comparison and plots) in results/bonds.
     """
     
-    bonds_df = pd.read_csv(RAW_DIR["OAT"])
+    bonds_df = read_csv_robust(RAW_DIR["OAT"], numeric_columns=("Coupon", "CleanPrice", "Frequency"))
 
     for folder in (PROCESSED_DIR["OAT"], RESULTS_DIR["OAT"], RESULTS_DIR["QUANTLIB_OAT"], RESULTS_DIR["COMPARISON_OAT"]):
         folder.mkdir(parents = True, exist_ok = True)
 
-    bonds_df["Maturity"] = pd.to_datetime(bonds_df["Maturity"])
-    bonds_df["EvaluationDate"] = pd.to_datetime(bonds_df["EvaluationDate"])
-    bonds_df["AccrualStartDate"] = pd.to_datetime(bonds_df["AccrualStartDate"])
-    bonds_df["IssueDate"] = pd.to_datetime(bonds_df["IssueDate"])
+    bonds_df["Maturity"] = parse_dates(bonds_df["Maturity"])
+    bonds_df["EvaluationDate"] = parse_dates(bonds_df["EvaluationDate"])
+    bonds_df["AccrualStartDate"] = parse_dates(bonds_df["AccrualStartDate"])
+    bonds_df["IssueDate"] = parse_dates(bonds_df["IssueDate"])
 
     cashflow = generate_cashflows(bonds_df)
     cashflow.to_csv(PROCESSED_DIR["OAT"] / "cashflow.csv", index = False)

@@ -2,7 +2,7 @@ import pandas as pd
 import QuantLib as ql
 
 from config import RAW_DIR, RESULTS_DIR, CALENDAR_SCHEDULE_CONVENTIONS, SETTLEMENT_DAYS_CONVENTIONS, BUSINESS_DAY_CONVENTIONS
-from scripts.common.common import to_ql_date
+from scripts.common.common import to_ql_date, read_csv_robust
 from scripts.ois.mid import generate_mid
 from scripts.ois.cashflow import generate_cashflows
 from scripts.ois.bootstrap import generate_discount_factors
@@ -45,7 +45,7 @@ def run_ois() -> pd.DataFrame:
 
     for file in files:
 
-        ois_dataset = pd.read_csv(file)
+        ois_dataset = read_csv_robust(file, numeric_columns=("Term", "Bid", "Ask", "Freq"))
         reference_rate = file.parent.name
 
         output_dir = RESULTS_DIR["OIS"] / reference_rate / file.stem
